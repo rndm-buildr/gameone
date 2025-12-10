@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run</title>
+
+    <style>        
+        body {
+            margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh;
+            background-color: #f7f7f7; font-family: Arial, sans-serif; overflow: hidden;
+        }
+
+        #game-container {
+            position: relative; width: 90%; max-width: 1300px; height: 400px; 
+            border-bottom: 5px solid #333; background-color: #ffffff; overflow: hidden;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2); touch-action: manipulation; 
+        }
+
+        #dino {
+            position: absolute; bottom: 0; left: 5%; width: 100px; height: 100px; 
+            background-image: url('image1.png'); background-size: contain; background-repeat: no-repeat;
+            background-position: center; display: none; transition: bottom 0.05s linear; 
+        }
+        
+        .obstacle {
+            position: absolute; bottom: 0; width: 45px; height: 40px; 
+            background-color: #808080; border-radius: 50% 50% 0 0; 
+            box-shadow: 0 4px #696969; 
+        }
+
+        #score {
+            position: absolute; top: 15px; right: 15px; font-size: 1.6em; font-weight: bold; color: #555; z-index: 10;
+        }
+
+        .overlay-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex;
+            flex-direction: column; justify-content: center; align-items: center;
+            background-color: rgba(255, 255, 255, 0.9); font-size: 2.2em; font-weight: bold;
+            color: #333; text-align: center; z-index: 20;
+        }
+
+        #game-over { display: none; }
+        #game-over-icon {
+            width: 120px; height: 120px; background-image: url('image2.jpeg'); background-size: cover; margin-bottom: 25px; 
+        }
+        #game-over p { margin: 5px 0; }
+        
+        #game-finished { display: none;background-color: rgba(0, 0, 255, 0.181); color: #006400; }
+        #game-finished h2 { margin: 0; }
+        #game-finished p { margin: 5px 0; }
+        
+        #start-screen { display: flex; }
+        #start-screen button {
+            padding: 18px 35px; font-size: 1.6em; font-weight: bold; cursor: pointer;
+            background-color: #4CAF50; color: white; border: none; border-radius: 8px; margin-top: 35px;
+        }
+
+        @media only screen and (max-width: 600px) {
+            #game-container { width: 95vw; height: 300px; border-bottom: 3px solid #333; }
+            #dino { width: 80px; height: 80px; }
+            .obstacle { width: 30px; height: 25px; }
+            #game-over-icon { width: 90px; height: 90px; }
+            .overlay-screen { font-size: 1.6em; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="start-screen" class="overlay-screen">
+            <h2>RUNNER</h2>
+            <p>Press SPACE or Click/Tap to jump!</p>
+            <button id="start-button">START GAME</button>
+        </div>
+        
+        <div id="game-over" class="overlay-screen">
+            <div id="game-over-icon"></div> 
+            <p>TRY AGAIN</p>
+            <p style="font-size: 0.5em; font-weight: normal;">Click/Tap to Restart</p>
+        </div>
+
+        <div id="game-finished" class="overlay-screen">
+            <h2>GAME COMPLETED!</h2>
+            <p style="font-size: 0.6em; font-weight: normal;">Click/Tap to Play Again</p>
+        </div>
+
+        <div id="ground"></div>
+        <div id="dino"></div>
+        <div id="score">Score: 0 / Target: 10000</div>
+    </div>
+
+    <script>
+
+        const DINO = document.getElementById('dino');
+        const GAME_CONTAINER = document.getElementById('game-container');
+        const SCORE_DISPLAY = document.getElementById('score');
+        const START_BUTTON = document.getElementById('start-button');
+        
+        
+        const WIN_SCORE = 10000; 
+        
+        const BASE_SPEED = 7; 
+        const ACCELERATION_RATE = 0.005; 
+        const FIXED_SPAWN_INTERVAL = 2500; 
+        const SCORE_MULTIPLIER = 10;
+        
+        const GROUND_LEVEL = 0;
+        const JUMP_VELOCITY = 25; 
+        const GRAVITY = 1.6; 
+        
+        let currentSpeed = BASE_SPEED; 
+        let dinoY = GROUND_LEVEL; 
+        let yVelocity = 0; 
+        let jumpInterval = null; 
+        let obstacleTimer; 
+
+        let isRunning = false; 
+        let isJumping = false; 
+        let isGameOver = false;
+        let score = 0;
+        let gameLoopInterval;
+
+        function scheduleObstacleSpawn() {
+            if (!isRunning) return;
+            obstacleTimer = setInterval(spawnObstacle, FIXED_SPAWN_INTERVAL);
+        }
+
+        function spawnObstacle() {
+            const obstacle = document.createElement('div');
+            obstacle.classList.add('obstacle');
+            obstacle.style.right = '-45px'; 
+            GAME_CONTAINER.appendChild(obstacle); 
+
+            let obstaclePosition = -45;
+            
+            function moveObstacle() {
+                if (!isRunning) {
+                    clearInterval(moveInterval);
+                    return;
+                }
+                
+                obstaclePosition += currentSpeed; 
+                obstacle.style.right = obstaclePosition + 'px';
+
+                if (obstaclePosition > GAME_CONTAINER.clientWidth) {
+                    clearInterval(moveInterval);
+                    obstacle.remove();
+                    return;
+                }
+
+                checkCollision(obstacle);
+            }
+
+            const moveInterval = setInterval(moveObstacle, 20);
+        }
+        
+        function applyPhysics() {
+            if (!isRunning) return;
+
+            yVelocity -= GRAVITY;
+            dinoY += yVelocity;
+
+            if (dinoY <= GROUND_LEVEL) {
+                dinoY = GROUND_LEVEL;
+                yVelocity = 0;
+                isJumping = false; 
+                clearInterval(jumpInterval);
+                jumpInterval = null;
+            }
+
+            DINO.style.bottom = dinoY + 'px';
+        }
+
+        function jump() {
+            if (!isRunning || isJumping || isGameOver) return;
+
+            isJumping = true;
+            yVelocity = JUMP_VELOCITY; 
+
+            if (!jumpInterval) {
+                jumpInterval = setInterval(applyPhysics, 20);
+            }
+        }
+
+        function checkCollision(obstacle) {
+            const dinoRect = DINO.getBoundingClientRect();
+            const obstacleRect = obstacle.getBoundingClientRect();
+
+            const isColliding = 
+                dinoRect.left < obstacleRect.right && 
+                dinoRect.right > obstacleRect.left &&
+                dinoRect.top < obstacleRect.bottom &&
+                dinoRect.bottom > obstacleRect.top;
+
+            if (isColliding) {
+                gameOver();
+            }
+        }
+
+        function updateScore() {
+            score += 1;
+            const currentScore = score * SCORE_MULTIPLIER;
+            SCORE_DISPLAY.textContent = `Score: ${currentScore} /  ${WIN_SCORE}`;
+
+            if (currentScore < WIN_SCORE) {
+                currentSpeed += ACCELERATION_RATE; 
+            } else {
+                gameFinished();
+            }
+        }
+
+        function stopGameLoops() {
+            isRunning = false;
+            clearInterval(gameLoopInterval); 
+            clearInterval(jumpInterval); 
+            clearInterval(obstacleTimer); 
+            jumpInterval = null;
+        }
+
+        function gameOver() {
+            stopGameLoops();
+            isGameOver = true;
+            document.getElementById('game-over').style.display = 'flex';
+        }
+
+        function gameFinished() {
+            if (isGameOver) return; 
+            stopGameLoops();
+            document.getElementById('game-finished').style.display = 'flex';
+        }
+
+        function resetState() {
+            isGameOver = false;
+            isJumping = false; 
+            score = 0;
+            currentSpeed = BASE_SPEED;
+            dinoY = GROUND_LEVEL;
+            yVelocity = 0;
+            DINO.style.bottom = GROUND_LEVEL + 'px'; 
+
+            SCORE_DISPLAY.textContent = `Score: 0 / Target: ${WIN_SCORE}`;
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('game-finished').style.display = 'none';
+            DINO.style.display = 'block'; 
+            
+            document.querySelectorAll('.obstacle').forEach(obs => obs.remove());
+        }
+
+        function startGame() {
+            resetState();
+            isRunning = true;
+            
+            scheduleObstacleSpawn(); 
+            gameLoopInterval = setInterval(updateScore, 50); 
+        }
+
+        START_BUTTON.addEventListener('click', startGame);
+
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Space') {
+                if (!isRunning) { 
+                    startGame();
+                } else {
+                    jump();
+                }
+            }
+        });
+
+        const GAME_OVER_SCREEN = document.getElementById('game-over');
+        const GAME_FINISHED_SCREEN = document.getElementById('game-finished');
+
+        GAME_CONTAINER.addEventListener('touchstart', handleGameInteraction);
+        GAME_CONTAINER.addEventListener('click', handleGameInteraction); 
+
+        function handleGameInteraction(event) {
+            if (event.target.id === 'start-button') return; 
+
+            if (event.type === 'touchstart') {
+                event.preventDefault(); 
+            }
+
+            if (isGameOver || GAME_FINISHED_SCREEN.style.display === 'flex') {
+                startGame();
+            } else if (!isRunning) {
+                startGame();
+            } else {
+                jump();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            DINO.style.display = 'none';
+            document.getElementById('start-screen').style.display = 'flex';
+        });
+    </script>
+</body>
+</html>
